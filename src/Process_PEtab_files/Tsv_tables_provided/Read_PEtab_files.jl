@@ -1,14 +1,16 @@
-function read_petab_yaml(path_yaml::AbstractString)
+function read_petab_yaml(path_yaml::AbstractString; skip_SBML::Bool=false)
 
     if !isfile(path_yaml)
         throw(PEtabFileError("Model YAML file does not exist in the model directory"))
     end
     file_yaml = YAML.load_file(path_yaml)
-
     dir_model = dirname(path_yaml)
-    path_SBML = joinpath(dir_model, file_yaml["problems"][1]["sbml_files"][1])
-    if !isfile(path_SBML)
-        throw(PEtabFileError("SBML file does not exist in the model directory"))
+
+    if skip_SBML == false
+        path_SBML = joinpath(dir_model, file_yaml["problems"][1]["sbml_files"][1])
+        if !isfile(path_SBML)
+            throw(PEtabFileError("SBML file does not exist in the model directory"))
+        end
     end
 
     path_measurements = joinpath(dir_model, file_yaml["problems"][1]["measurement_files"][1])
@@ -38,7 +40,11 @@ function read_petab_yaml(path_yaml::AbstractString)
         mkdir(dir_julia)
     end
 
-    return path_SBML, path_parameters, path_conditions, path_observables, path_measurements, dir_julia, dir_model, model_name
+    if skip_SBML == false
+        return path_SBML, path_parameters, path_conditions, path_observables, path_measurements, dir_julia, dir_model, model_name
+    else
+        return path_parameters, path_conditions, path_observables, path_measurements, dir_julia, dir_model, model_name
+    end
 end
 
 

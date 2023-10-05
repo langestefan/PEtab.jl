@@ -10,18 +10,17 @@ function compute_θ_indices(parameter_info::ParametersInfo,
                            petab_model::PEtabModel)::ParameterIndices
 
     experimental_conditions_file = petab_model.path_conditions
-    return compute_θ_indices(parameter_info, measurements_info, petab_model.system, petab_model.parameter_map, petab_model.state_map, experimental_conditions_file)
+    return compute_θ_indices(parameter_info, measurements_info, petab_model.parameter_map, petab_model.state_map, experimental_conditions_file)
 
 end
 function compute_θ_indices(parameter_info::ParametersInfo,
                            measurements_info::MeasurementsInfo,
-                           system,
                            parameter_map,
                            state_map,
                            experimental_conditions_file::CSV.File)::ParameterIndices
 
     θ_observable_names, θ_sd_names,  θ_non_dynamic_names, θ_dynamic_names = compute_θ_names(parameter_info, 
-        measurements_info, system, experimental_conditions_file)
+        measurements_info, parameter_map, state_map, experimental_conditions_file)
     # When computing the gradient tracking parameters not part of ODE system is helpful
     iθ_not_ode_names::Vector{Symbol} = Symbol.(unique(vcat(θ_sd_names, θ_observable_names, θ_non_dynamic_names)))
     # Names in the big θ_est vector
@@ -40,13 +39,13 @@ function compute_θ_indices(parameter_info::ParametersInfo,
     mapθ_sd = build_θ_sd_observable_map(θ_sd_names, measurements_info, parameter_info, buildθ_observable=false)
 
     # Compute a map to map parameters between θ_dynamic and ode_problem.p
-    name_parameters_ode = Symbol.(string.(parameters(system)))
+    name_parameters_ode = Symbol.(string.(first.(parameter_map)))
     _iθ_dynamic::Vector{Int64} = findall(x -> x ∈ name_parameters_ode, θ_dynamic_names)
     i_ode_problem_θ_dynamic::Vector{Int64} = [findfirst(x -> x == θ_dynamic_names[i], name_parameters_ode) for i in _iθ_dynamic]
     map_ode_problem::Map_ode_problem = Map_ode_problem(_iθ_dynamic, i_ode_problem_θ_dynamic)
 
     # Set up a map for changing between experimental conditions
-    maps_condition_id::Dict{Symbol, MapConditionId} = compute_maps_condition(system, parameter_map, state_map, parameter_info, experimental_conditions_file, θ_dynamic_names)
+    maps_condition_id::Dict{Symbol, MapConditionId} = compute_maps_condition(parameter_map, state_map, parameter_info, experimental_conditions_file, θ_dynamic_names)
 
     # Set up a named tuple tracking the transformation of each parameter
     _θ_scale = [parameter_info.parameter_scale[findfirst(x -> x == θ_name, parameter_info.parameter_id)] for θ_name in θ_names]
@@ -75,8 +74,12 @@ end
 
 function compute_θ_names(parameter_info::ParametersInfo,
                          measurements_info::MeasurementsInfo,
-                         system,
+                         parameter_map,
+                         state_map,
                          experimental_conditions_file::CSV.File)::Tuple{Vector{Symbol},Vector{Symbol},Vector{Symbol},Vector{Symbol}}
+
+    parameter_names = string.(first.(parameter_map))
+    state_names = replace.(string.(first.(state_map)), "(t)" => "")
 
     # Extract the name of all parameter types
     θ_observable_names::Vector{Symbol} = compute_names_obs_sd_parameters(measurements_info.observable_parameters, parameter_info)
@@ -92,9 +95,9 @@ function compute_θ_names(parameter_info::ParametersInfo,
     _isθ_non_dynamic = (parameter_info.estimate .&& .!isθ_observable .&& .!isθ_sd)
     _θ_non_dynamic_names = parameter_info.parameter_id[_isθ_non_dynamic]
     # Non-dynamic parameters not allowed to be part of the ODE-system
-    _θ_non_dynamic_names = _θ_non_dynamic_names[findall(x -> x ∉ Symbol.(string.(parameters(system))), _θ_non_dynamic_names)]
+    _θ_non_dynamic_names = _θ_non_dynamic_names[findall(x -> x ∉ Symbol.(parameter_names), _θ_non_dynamic_names)]
     # Non-dynamic parameters not allowed to be experimental condition specific parameters
-    conditions_specific_θ_dynamic = identify_cond_specific_θ_dynamic(system, parameter_info, experimental_conditions_file)
+    conditions_specific_θ_dynamic = identify_cond_specific_θ_dynamic(parameter_names, state_names, parameter_info, experimental_conditions_file)
     θ_non_dynamic_names::Vector{Symbol} = _θ_non_dynamic_names[findall(x -> x ∉ conditions_specific_θ_dynamic, _θ_non_dynamic_names)]
     isθ_non_dynamic = [parameter_info.parameter_id[i] in  θ_non_dynamic_names for i in eachindex(parameter_info.parameter_id)]
 
@@ -138,13 +141,11 @@ end
 
 # Identifaying dynamic parameters to estimate, where the dynamic parameters are only used for some specific
 # experimental conditions.
-function identify_cond_specific_θ_dynamic(system,
+function identify_cond_specific_θ_dynamic(parameter_names::Vector{String},
+                                          state_names::Vector{String},
                                           parameter_info::ParametersInfo,
                                           experimental_conditions_file::CSV.File)::Vector{Symbol}
 
-    all_parameters_ode = string.(parameters(system))
-    model_state_names = string.(states(system))
-    model_state_names = replace.(model_state_names, "(t)" => "")
     parameters_estimate = parameter_info.parameter_id[parameter_info.estimate]
 
     # List of parameters which have specific values for specific experimental conditions, these can be extracted
@@ -156,7 +157,7 @@ function identify_cond_specific_θ_dynamic(system,
     i_start = column_names[2] == "conditionName" ? 3 : 2 # Sometimes PEtab file does not include column conditionName
     for i in i_start:length(experimental_conditions_file.names)
 
-        if column_names[i] ∉ all_parameters_ode && column_names[i] ∉ model_state_names
+        if column_names[i] ∉ parameter_names && column_names[i] ∉ state_names
             @error "Problem : Parameter ", column_names[i], " should be in the ODE model as it dicates an experimental condition"
         end
 
@@ -246,8 +247,7 @@ end
 
 
 # A map to accurately map parameters for a specific experimental conditionId to the ODE-problem
-function compute_maps_condition(system,
-                                parameter_map,
+function compute_maps_condition(parameter_map,
                                 state_map,
                                 parameter_info::ParametersInfo,
                                 experimental_conditions_file::CSV.File,
@@ -255,9 +255,8 @@ function compute_maps_condition(system,
 
     θ_dynamic_names = string.(_θ_dynamic_names)
     n_conditions = length(experimental_conditions_file)
-    model_state_names = string.(states(system))
-    model_state_names = replace.(model_state_names, "(t)" => "")
-    all_parameters_ode = string.(parameters(system))
+    parameter_names = string.(first.(parameter_map))
+    state_names = replace.(string.(first.(state_map)), "(t)" => "")
 
     i_start = :conditionName in experimental_conditions_file.names ? 3 : 2 # conditionName is optional in PEtab file
     condition_specific_variables = string.(experimental_conditions_file.names[i_start:end])
@@ -279,28 +278,28 @@ function compute_maps_condition(system,
         for j in eachindex(rowi)
 
             # In case a condition specific ode-system parameter is mapped to constant number
-            if is_number(rowi[j]) && condition_specific_variables[j] ∈ all_parameters_ode
+            if is_number(rowi[j]) && condition_specific_variables[j] ∈ parameter_names
                 constant_parameters = vcat(constant_parameters, parse(Float64, rowi[j]))
-                i_ode_constant_parameters = vcat(i_ode_constant_parameters, findfirst(x -> x == condition_specific_variables[j], all_parameters_ode))
+                i_ode_constant_parameters = vcat(i_ode_constant_parameters, findfirst(x -> x == condition_specific_variables[j], parameter_names))
                 continue
             end
-            if is_number(rowi[j]) && condition_specific_variables[j] ∈ model_state_names
+            if is_number(rowi[j]) && condition_specific_variables[j] ∈ state_names
                 constant_parameters = vcat(constant_parameters, parse(Float64, rowi[j]))
-                i_ode_constant_parameters = vcat(i_ode_constant_parameters, findfirst(x -> x == "__init__" * condition_specific_variables[j] * "__", all_parameters_ode))
+                i_ode_constant_parameters = vcat(i_ode_constant_parameters, findfirst(x -> x == "__init__" * condition_specific_variables[j] * "__", parameter_names))
                 continue
             end
             is_number(rowi[j]) && @error "Error : Cannot build map for experimental condition variable", condition_specific_variables[j]
 
 
             # In case we are trying to change one the θ_dynamic parameters we are estimating
-            if rowi[j] ∈ θ_dynamic_names && condition_specific_variables[j] ∈ all_parameters_ode
+            if rowi[j] ∈ θ_dynamic_names && condition_specific_variables[j] ∈ parameter_names
                 iθ_dynamic = vcat(iθ_dynamic, findfirst(x -> x == rowi[j], θ_dynamic_names))
-                i_ode_problem_θ_dynamic = vcat(i_ode_problem_θ_dynamic, findfirst(x -> x == condition_specific_variables[j], all_parameters_ode))
+                i_ode_problem_θ_dynamic = vcat(i_ode_problem_θ_dynamic, findfirst(x -> x == condition_specific_variables[j], parameter_names))
                 continue
             end
-            if rowi[j] ∈ θ_dynamic_names && condition_specific_variables[j] ∈ model_state_names
+            if rowi[j] ∈ θ_dynamic_names && condition_specific_variables[j] ∈ state_names
                 iθ_dynamic = vcat(iθ_dynamic, findfirst(x -> x == rowi[j], θ_dynamic_names))
-                i_ode_problem_θ_dynamic = vcat(i_ode_problem_θ_dynamic, findfirst(x -> x == "__init__" * condition_specific_variables[j] * "__", all_parameters_ode))
+                i_ode_problem_θ_dynamic = vcat(i_ode_problem_θ_dynamic, findfirst(x -> x == "__init__" * condition_specific_variables[j] * "__", parameter_names))
                 continue
             end
             rowi[j] ∈ θ_dynamic_names && @error "Could not map " * string(condition_specific_variables[j]) * " when building condition map"
@@ -309,30 +308,30 @@ function compute_maps_condition(system,
             if rowi[j] ∈ string.(parameter_info.parameter_id)
                 i_value = findfirst(x -> x == rowi[j], string.(parameter_info.parameter_id))
                 constant_parameters = vcat(constant_parameters, parameter_info.nominal_value[i_value])
-                i_ode_constant_parameters = vcat(i_ode_constant_parameters, findfirst(x -> x == condition_specific_variables[j], all_parameters_ode))
+                i_ode_constant_parameters = vcat(i_ode_constant_parameters, findfirst(x -> x == condition_specific_variables[j], parameter_names))
                 continue
             end
 
             # In case rowi is missing (specifically NaN) the default SBML-file value should be used. To this end we need to
             # have access to the parameter and state map to handle both states and parameters. Then must fix such that
             # __init__ parameters  take on the correct value.
-            if rowi[j] == "missing" && condition_specific_variables[j] ∈ all_parameters_ode
+            if rowi[j] == "missing" && condition_specific_variables[j] ∈ parameter_names
                 valueDefault = get_default_values_maps(string(condition_specific_variables[j]), parameter_map, state_map)
                 constant_parameters = vcat(constant_parameters, valueDefault)
-                i_ode_constant_parameters = vcat(i_ode_constant_parameters, findfirst(x -> x == condition_specific_variables[j], all_parameters_ode))
+                i_ode_constant_parameters = vcat(i_ode_constant_parameters, findfirst(x -> x == condition_specific_variables[j], parameter_names))
                 continue
             end
-            if rowi[j] == "missing" && condition_specific_variables[j] ∈ model_state_names
+            if rowi[j] == "missing" && condition_specific_variables[j] ∈ state_names
                 valueDefault = get_default_values_maps(string(condition_specific_variables[j]), parameter_map, state_map)
                 constant_parameters = vcat(constant_parameters, valueDefault)
-                i_ode_constant_parameters = vcat(i_ode_constant_parameters, findfirst(x -> x == "__init__" * condition_specific_variables[j] * "__", all_parameters_ode))
+                i_ode_constant_parameters = vcat(i_ode_constant_parameters, findfirst(x -> x == "__init__" * condition_specific_variables[j] * "__", parameter_names))
                 continue
             end
 
             # NaN can only applie for states
-            if rowi[j] == "NaN" && condition_specific_variables[j] ∈ model_state_names
+            if rowi[j] == "NaN" && condition_specific_variables[j] ∈ state_names
                 constant_parameters = vcat(constant_parameters, NaN)
-                i_ode_constant_parameters = vcat(i_ode_constant_parameters, findfirst(x -> x == "__init__" * condition_specific_variables[j] * "__", all_parameters_ode))
+                i_ode_constant_parameters = vcat(i_ode_constant_parameters, findfirst(x -> x == "__init__" * condition_specific_variables[j] * "__", parameter_names))
                 continue
             else
                 str_write = "If a row in conditions file is NaN then the column header must be a state"

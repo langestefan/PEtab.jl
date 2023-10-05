@@ -33,7 +33,7 @@ function create_σ_h_u0_file(model_name::String,
     measurement_info = process_measurements(measurements_data, observables_data)
 
     # Indices for keeping track of parameters in θ
-    θ_indices = compute_θ_indices(parameter_info, measurement_info, system, parameter_map, state_map, experimental_conditions)
+    θ_indices = compute_θ_indices(parameter_info, measurement_info, parameter_map, state_map, experimental_conditions)
 
     h_str = create_h_function(model_name, dir_julia, model_state_names, parameter_info, p_ode_problem_names,
                               string.(θ_indices.θ_non_dynamic_names), observables_data, SBML_dict, write_to_file)
@@ -65,7 +65,7 @@ function create_σ_h_u0_file(model_name::String,
     measurement_info = PEtab.process_measurements(measurements_data, observables_data)
 
     # Indices for keeping track of parameters in θ
-    θ_indices = PEtab.compute_θ_indices(parameter_info, measurement_info, system, parameter_map, state_map, experimental_conditions)
+    θ_indices = compute_θ_indices(parameter_info, measurement_info, parameter_map, state_map, experimental_conditions)
 
     # Dummary variables to keep PEtab importer happy even as we are not providing any PEtab files
     SBML_dict = Dict(); SBML_dict["assignmentRulesStates"] = Dict()
@@ -78,6 +78,39 @@ function create_σ_h_u0_file(model_name::String,
                                      SBML_dict, inplace=false)
     σ_str = PEtab.create_σ_function(model_name, @__DIR__, parameter_info, model_state_names, p_ode_problem_names,
                                    string.(θ_indices.θ_non_dynamic_names), observables_data, SBML_dict, false)
+
+    return h_str, u0!_str, u0_str, σ_str
+end
+"""
+    When working with an UDE
+"""
+function create_σ_h_u0_file(model_name::String,
+                            path_yaml::String,
+                            dir_julia::String,
+                            p_ode_problem_names,
+                            model_state_names,
+                            parameter_map,
+                            state_map,
+                            write_to_file::Bool)
+
+    experimental_conditions, measurements_data, parameters_data, observables_data = read_petab_files(path_yaml)
+    parameter_info = process_parameters(parameters_data)
+    measurement_info = process_measurements(measurements_data, observables_data)
+
+    # Indices for keeping track of parameters in θ
+    θ_indices = compute_θ_indices(parameter_info, measurement_info, parameter_map, state_map, experimental_conditions)
+
+    # Dummary variables to keep PEtab importer happy even as we are not providing any SBML files
+    SBML_dict = Dict(); SBML_dict["assignmentRulesStates"] = Dict()
+
+    h_str = create_h_function(model_name, dir_julia, model_state_names, parameter_info, p_ode_problem_names,
+                              string.(θ_indices.θ_non_dynamic_names), observables_data, SBML_dict, write_to_file)
+
+    u0!_str = create_u0_function(model_name, dir_julia, parameter_info, p_ode_problem_names, state_map, write_to_file, SBML_dict, inplace=true)
+
+    u0_str = create_u0_function(model_name, dir_julia, parameter_info, p_ode_problem_names, state_map, write_to_file, SBML_dict, inplace=false)
+
+    σ_str = create_σ_function(model_name, dir_julia, parameter_info, model_state_names, p_ode_problem_names, string.(θ_indices.θ_non_dynamic_names), observables_data, SBML_dict, write_to_file)
 
     return h_str, u0!_str, u0_str, σ_str
 end

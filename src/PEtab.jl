@@ -24,6 +24,8 @@ using PrecompileTools
 using SBML
 using QuasiMonteCarlo
 using SpecialFunctions
+using Lux
+using ComponentArrays
 
 RuntimeGeneratedFunctions.init(@__MODULE__)
 
@@ -58,6 +60,8 @@ include(joinpath("Process_PEtab_files", "Tsv_tables_provided", "Process_paramete
 include(joinpath("Process_PEtab_files", "Tsv_tables_provided", "Read_PEtab_files.jl"))
 # Process a PEtab model when files are provided in Julia (without tsv-tables)
 include(joinpath("Process_PEtab_files", "Julia_tables_provided", "Parse_input.jl"))
+# For UDE
+include(joinpath("Process_PEtab_files", "UDE", "Create_PEtabModel.jl"))
 # Common functionality independent of how model is provided 
 include(joinpath("Process_PEtab_files", "Common.jl"))
 include(joinpath("Process_PEtab_files", "Get_simulation_info.jl"))

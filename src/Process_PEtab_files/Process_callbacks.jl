@@ -18,7 +18,7 @@ function create_callbacks_for_piecewise(system::ODESystem,
     experimental_conditions, measurements_data, parameters_data, observables_data = read_petab_files(path_yaml)
     parameter_info = process_parameters(parameters_data, custom_parameter_values=custom_parameter_values)
     measurement_info = process_measurements(measurements_data, observables_data)
-    θ_indices = compute_θ_indices(parameter_info, measurement_info, system, parameter_map, state_map, experimental_conditions)
+    θ_indices = compute_θ_indices(parameter_info, measurement_info, parameter_map, state_map, experimental_conditions)
 
     # In case of no-callbacks the function for getting callbacks will be empty, likewise for the function
     # which compute tstops (callback-times)

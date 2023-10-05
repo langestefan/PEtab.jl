@@ -162,7 +162,7 @@ function _PEtabModel(system,
     verbose == true && print(" Building u0, h and σ functions ...")
     time_taken = @elapsed begin
     h_str, u0!_str, u0_str, σ_str = PEtab.create_σ_h_u0_file(model_name, system, experimental_conditions, measurements_data,
-                                                                parameters_data, observables_data, _state_map)
+                                                             parameters_data, observables_data, _state_map)
     compute_h = @RuntimeGeneratedFunction(Meta.parse(h_str))
     compute_u0! = @RuntimeGeneratedFunction(Meta.parse(u0!_str))
     compute_u0 = @RuntimeGeneratedFunction(Meta.parse(u0_str))
@@ -206,7 +206,7 @@ function _PEtabModel(system,
     else
         parameter_info = process_parameters(parameters_data)
         measurement_info = process_measurements(measurements_data, observables_data)
-        θ_indices = compute_θ_indices(parameter_info, measurement_info, system, _parameter_map, _state_map, experimental_conditions)
+        θ_indices = compute_θ_indices(parameter_info, measurement_info, _parameter_map, _state_map, experimental_conditions)
         write_callbacks_str, write_tstops_str = process_petab_events(events, system, model_name, θ_indices)
     end
     get_callback_function = @RuntimeGeneratedFunction(Meta.parse(write_callbacks_str))
@@ -239,7 +239,8 @@ function _PEtabModel(system,
                              "",
                              cbset,
                              check_cb_active, 
-                             true)
+                             true, 
+                             false)
     return petab_model
 end
 

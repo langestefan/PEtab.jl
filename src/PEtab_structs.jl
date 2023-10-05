@@ -78,6 +78,7 @@ struct PEtabModel{F1<:Function,
     model_callbacks::C
     check_callback_is_active::FA
     defined_in_julia::Bool
+    is_UDE::Bool
 end
 
 
